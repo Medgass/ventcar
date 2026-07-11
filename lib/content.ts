@@ -319,20 +319,47 @@ export const DEFAULT_CONTENT: SiteContent = {
 };
 
 const CONTENT_PATH = path.join(process.cwd(), "data", "site-content.json");
+let memoryContent: SiteContent | null = null;
+
+function mergeContent(parsed: Partial<SiteContent> | null | undefined): SiteContent {
+  return {
+    ...DEFAULT_CONTENT,
+    ...(parsed ?? {}),
+    admin: { ...DEFAULT_CONTENT.admin, ...(parsed?.admin ?? {}) },
+  } as SiteContent;
+}
 
 export async function readContent(): Promise<SiteContent> {
+  if (memoryContent) {
+    return memoryContent;
+  }
+
   try {
     const raw = await fs.readFile(CONTENT_PATH, "utf8");
     const parsed = JSON.parse(raw);
-    // Les clés manquantes (nouvelles versions du schéma) retombent sur les valeurs par défaut
-    return { ...DEFAULT_CONTENT, ...parsed, admin: { ...DEFAULT_CONTENT.admin, ...parsed.admin } };
+    memoryContent = mergeContent(parsed);
+    return memoryContent;
   } catch {
-    await writeContent(DEFAULT_CONTENT);
-    return DEFAULT_CONTENT;
+    memoryContent = mergeContent(undefined);
+
+    try {
+      await fs.mkdir(path.dirname(CONTENT_PATH), { recursive: true });
+      await fs.writeFile(CONTENT_PATH, JSON.stringify(memoryContent, null, 2), "utf8");
+    } catch {
+      // Ignore filesystem write errors in serverless environments such as Vercel.
+    }
+
+    return memoryContent;
   }
 }
 
 export async function writeContent(content: SiteContent): Promise<void> {
-  await fs.mkdir(path.dirname(CONTENT_PATH), { recursive: true });
-  await fs.writeFile(CONTENT_PATH, JSON.stringify(content, null, 2), "utf8");
+  memoryContent = content;
+
+  try {
+    await fs.mkdir(path.dirname(CONTENT_PATH), { recursive: true });
+    await fs.writeFile(CONTENT_PATH, JSON.stringify(content, null, 2), "utf8");
+  } catch {
+    // Ignore filesystem write errors in serverless environments such as Vercel.
+  }
 }
